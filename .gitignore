@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+dist/*
+!dist/.gitkeep
+.coverage
+htmlcov/
+
+# Never commit local credentials.
+config.local.json
+*.key
+*.secret
+

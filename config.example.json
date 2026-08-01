@@ -1,0 +1,25 @@
+{
+  "provider": "deepseek",
+  "source_language": "auto",
+  "target_language": "zh-CN",
+  "pager": "auto",
+  "color": "auto",
+  "command_timeout_seconds": 30,
+  "max_input_chars": 250000,
+  "batch_chars": 10000,
+  "timeout_seconds": 90,
+  "retries": 2,
+  "cache_enabled": true,
+  "providers": {
+    "deepseek": {
+      "base_url": "https://api.deepseek.com",
+      "model": "deepseek-v4-flash",
+      "api_key": ""
+    },
+    "openai": {
+      "base_url": "https://api.openai.com/v1",
+      "model": "gpt-5.6-luna",
+      "api_key": ""
+    }
+  }
+}
