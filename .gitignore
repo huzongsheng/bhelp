@@ -2,13 +2,20 @@ __pycache__/
 *.py[cod]
 .venv/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+*.egg-info/
+*.pyz
 dist/*
 !dist/.gitkeep
 .coverage
 htmlcov/
 
 # Never commit local credentials.
+.env
+.env.*
+/config.json
 config.local.json
 *.key
 *.secret
-

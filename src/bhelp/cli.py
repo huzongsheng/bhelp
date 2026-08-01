@@ -25,7 +25,10 @@ from .integration import (
     IntegrationError,
     git_status,
     install_git_integration,
+    install_man_integration,
+    man_status,
     remove_git_integration,
+    remove_man_integration,
 )
 from .provider import ChatCompletionsProvider, ProviderError, resolve_provider_settings
 from .render import display_output, render_bilingual, use_color
@@ -73,6 +76,10 @@ def build_parser() -> argparse.ArgumentParser:
     pipe_parser = subparsers.add_parser("pipe", help="翻译标准输入")
     _add_common_options(pipe_parser, suppress_defaults=True)
 
+    pager_parser = subparsers.add_parser("pager", help="作为 MANPAGER 提供交互式懒加载翻译")
+    _add_common_options(pager_parser, suppress_defaults=True)
+    pager_parser.add_argument("files", nargs="*", help="由 man 传入的可选格式化页面文件")
+
     config_parser = subparsers.add_parser("config", help="管理用户配置")
     config_parser.add_argument("--config", dest="config_path", default=argparse.SUPPRESS)
     config_actions = config_parser.add_subparsers(dest="config_action", required=True)
@@ -92,6 +99,10 @@ def build_parser() -> argparse.ArgumentParser:
     integration_targets = integration_parser.add_subparsers(dest="integration_target", required=True)
     git_parser = integration_targets.add_parser("git", help="让 git help 直接调用 bhelp")
     git_parser.add_argument("action", choices=("install", "status", "remove"))
+    system_man_parser = integration_targets.add_parser(
+        "man", help="让系统 man 通过 MANPAGER 直接调用 bhelp"
+    )
+    system_man_parser.add_argument("action", choices=("install", "status", "remove"))
 
     cache_parser = subparsers.add_parser("cache", help="查看或清理翻译缓存")
     cache_parser.add_argument("action", choices=("stats", "clear"))
@@ -146,14 +157,40 @@ def _handle_cache(args: argparse.Namespace) -> int:
 
 def _handle_integration(args: argparse.Namespace) -> int:
     path = _config_path_from_args(args)
+    if args.integration_target == "man":
+        if args.action == "install":
+            executable = _find_bhelp_executable()
+            if not executable:
+                raise IntegrationError(
+                    "cannot locate an installed bhelp executable; run scripts/install.sh first"
+                )
+            status = install_man_integration(executable, path)
+            print("man 集成已安装；重新打开 Bash 后可直接运行：man git")
+            if status.migrated_legacy_git:
+                print("已恢复旧版 bhelp Git viewer；git help 现在也会经过统一 MANPAGER。")
+        elif args.action == "remove":
+            status = remove_man_integration(path)
+            print("man 集成已移除；原有 MANPAGER 设置会在新 Bash 中重新生效。")
+        else:
+            status = man_status(path)
+        print(
+            json.dumps(
+                {
+                    "installed": status.installed,
+                    "modified": status.modified,
+                    "shell_rc": status.rc_path,
+                    "MANPAGER": status.command,
+                    "backup": status.backup_path,
+                    "migrated_legacy_git": status.migrated_legacy_git,
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 0
     if args.integration_target != "git":
         return 2
     if args.action == "install":
-        executable = shutil.which("bhelp")
-        if not executable:
-            candidate = Path(sys.argv[0]).expanduser().resolve()
-            if candidate.is_file() and os.access(candidate, os.X_OK):
-                executable = str(candidate)
+        executable = _find_bhelp_executable()
         viewer_command = f"{shlex.quote(executable)} man" if executable else "bhelp man"
         if path:
             resolved_config = get_config_path(path).resolve()
@@ -177,6 +214,16 @@ def _handle_integration(args: argparse.Namespace) -> int:
         )
     )
     return 0
+
+
+def _find_bhelp_executable() -> str | None:
+    executable = shutil.which("bhelp")
+    if executable:
+        return str(Path(executable).expanduser().resolve())
+    candidate = Path(sys.argv[0]).expanduser().resolve()
+    if candidate.is_file() and os.access(candidate, os.X_OK):
+        return str(candidate)
+    return None
 
 
 def _effective_value(args: argparse.Namespace, config: dict[str, Any], name: str, env_name: str | None = None) -> Any:
@@ -309,6 +356,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _handle_cache(args)
         if args.command_name == "integrate":
             return _handle_integration(args)
+        if args.command_name == "pager":
+            from .pager import run_pager
+
+            try:
+                pager_config = load_config(_config_path_from_args(args))
+            except ConfigError as exc:
+                return run_pager(args, None, startup_warning=f"配置错误：{exc}")
+            return run_pager(args, pager_config)
         config = load_config(_config_path_from_args(args))
         if args.command_name == "doctor":
             return _handle_doctor(args, config)

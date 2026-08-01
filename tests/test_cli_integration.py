@@ -26,6 +26,11 @@ class ParserTests(unittest.TestCase):
         args = build_parser().parse_args(["run", "--", "git", "clone", "--help"])
         self.assertEqual(args.command, ["--", "git", "clone", "--help"])
 
+    def test_man_integration_parser(self):
+        args = build_parser().parse_args(["integrate", "man", "install"])
+        self.assertEqual(args.integration_target, "man")
+        self.assertEqual(args.action, "install")
+
     def test_zipapp_preserves_wrapped_command_exit_code(self):
         project_root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as directory:
@@ -87,6 +92,36 @@ class GitIntegrationTests(unittest.TestCase):
             self.assertEqual(installed.command, command)
             removed = remove_git_integration()
             self.assertFalse(removed.installed)
+
+    def test_remove_without_saved_state_preserves_unmanaged_git_settings(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ,
+            {"HOME": directory, "XDG_CONFIG_HOME": os.path.join(directory, ".config")},
+            clear=False,
+        ):
+            initialize_config()
+            subprocess.run(
+                ["git", "config", "--global", "man.viewer", "bhelp"],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "--global", "man.bhelp.cmd", "bhelp man"],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "--global", "help.format", "man"],
+                check=True,
+                capture_output=True,
+            )
+
+            status = remove_git_integration()
+
+            self.assertTrue(status.installed)
+            self.assertEqual(status.viewers, ["bhelp"])
+            self.assertEqual(status.command, "bhelp man")
+            self.assertEqual(status.help_formats, ["man"])
 
 
 if __name__ == "__main__":

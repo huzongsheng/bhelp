@@ -11,17 +11,40 @@ DESCRIPTION
 
 翻译以段落、选项说明和列表项等“语义块”为单位，而不是机械逐行翻译。命令、选项、路径、URL、环境变量和代码片段会尽量保持原样。DeepSeek 和 OpenAI 使用同一套 provider 接口，可以在配置或单次命令中切换。
 
-## 安装
+## 运行环境
 
-当前版本面向装有 Python 3.11+ 的 Linux/WSL，运行时不依赖任何第三方 Python 包。首选使用仓库中的零第三方依赖安装脚本：
+- Linux 或 WSL，终端使用 UTF-8；
+- Python 3.11 或更高版本；
+- 阅读手册需要 `man`（多数发行版由 `man-db` 提供）及相应手册包；
+- 调用 DeepSeek/OpenAI 翻译时需要网络和对应 API key。
+
+`bhelp` 运行时不依赖第三方 Python 包。可以先确认 Python 版本：
 
 ```bash
-git clone <repository-url> bhelp
+python3 --version
+```
+
+## 安装
+
+首选使用仓库中的安装脚本：
+
+```bash
+git clone https://github.com/huzongshen/bhelp.git bhelp
 cd bhelp
 sh scripts/install.sh
 ```
 
-脚本会构建单文件 zipapp `dist/bhelp`，并安装为 `~/.local/bin/bhelp`。如果该目录还不在 `PATH` 中，请按脚本提示将它加入 shell 配置，然后重新打开终端。
+脚本会检查 Python 版本、构建单文件 zipapp `dist/bhelp`，再安装为 `~/.local/bin/bhelp`。如果该目录还不在 `PATH` 中，请按脚本提示将它加入 shell 配置，然后重新打开终端。自定义安装目录或 Python 解释器时可以使用：
+
+```bash
+BHELP_INSTALL_DIR="$HOME/bin" BHELP_PYTHON=/usr/bin/python3 sh scripts/install.sh
+```
+
+确认命令已经可用：
+
+```bash
+bhelp --help
+```
 
 只有需要修改源码或以 Python 包方式开发时，才需要可选的 venv/pip 流程：
 
@@ -31,15 +54,71 @@ source .venv/bin/activate
 python -m pip install -e .
 ```
 
-确认命令已经可用：
-
-```bash
-bhelp --help
-```
-
 如果发行版缺少完整手册，请安装对应的 `man-db` 和命令手册包。`git clone -h` 只是简短帮助，`git help clone`/`bhelp man git-clone` 依赖完整的 Git man page。
 
-## 三种输入方式
+## 从源码测试和构建
+
+以下流程只使用 Python 标准库，不要求安装 `make`：
+
+```bash
+PYTHONPATH=src python3 -m unittest discover -s tests -v
+rm -f dist/bhelp
+python3 scripts/build_zipapp.py --output dist/bhelp
+python3 dist/bhelp --help
+```
+
+构建脚本会先把源码复制到临时 staging 目录，并排除 `__pycache__`、`.pyc` 和 `.pyo`，避免把本机测试缓存带进发行包。最后一条命令是 zipapp smoke test；构建产物为 `dist/bhelp`，该文件被 Git 忽略，不应提交到仓库。装有 `make` 时可使用等价的便利入口：
+
+```bash
+make test       # 只运行单元测试
+make build      # 生成 dist/bhelp
+make smoke      # 构建并检查 zipapp 能启动
+make check      # clean + test + smoke
+make install    # 构建并安装到用户目录
+make clean      # 删除 dist/bhelp
+```
+
+## 直接使用 `man`：透明集成与懒加载
+
+首次使用时先创建用户配置，并通过无回显提示保存 API key；`doctor` 会执行一次很短的联网翻译用于验证配置：
+
+```bash
+bhelp config init
+bhelp config set-key deepseek
+bhelp doctor --provider deepseek
+```
+
+安装 `man` 集成后，不需要再输入 `bhelp man`，也不会用 wrapper 遮蔽系统的 `man` 命令：
+
+```bash
+bhelp integrate man install
+# 重新打开终端，使 shell 集成生效
+man git
+```
+
+检查或移除集成：
+
+```bash
+bhelp integrate man status
+bhelp integrate man remove
+```
+
+集成通过 shell 的 man pager 机制把手册文本交给 `bhelp`。在交互式 TTY 中，curses pager 会先显示可阅读的英文原文，再优先翻译当前可见及临近预取区域的语义块；已经完成的块会逐步更新，翻译结果写入缓存。再次打开相同页面时会优先复用缓存，所以通常无需重复请求 API。网络或翻译失败时仍保留原文。
+
+分页器支持 `j`/`k` 或方向键逐行移动、`Space`/`b` 翻页、`g`/`G` 跳到首尾、`/` 搜索、`n`/`N` 查找下一处或上一处、`q` 退出。透明集成下也能对单次命令切换目标语言，源语言仍可保持自动识别：
+
+```bash
+BHELP_TARGET_LANGUAGE=ja-JP man git
+BHELP_SOURCE_LANGUAGE=auto BHELP_TARGET_LANGUAGE=zh-TW man printf
+```
+
+当前自动集成面向 Bash。`install` 会先以 `0600` 权限备份 `~/.bashrc`，再在文件末尾追加带边界标记的托管块；它不替换 `/usr/bin/man`，也不删除或改写用户原有的 `PAGER`/`MANPAGER` 设置。集成启用期间，末尾的托管块会覆盖 `MANPAGER`；`remove` 只删除内容未被篡改的 bhelp 自有块，原有 pager 设置随后重新生效，并保留安装时的 `.bashrc.bhelp-backup` 备份。zsh/fish 用户在自动集成支持加入前仍可使用下面的显式入口。如果只想查看原文，也可以运行：
+
+```bash
+bhelp man --no-network git
+```
+
+## 三种显式输入方式
 
 ### 1. `man` 页面
 
@@ -77,9 +156,15 @@ command --help 2>&1 | bhelp pipe
 
 标准输出连接终端时，长内容默认交给 `less`；重定向到文件或另一个管道时会自动关闭颜色和分页。也可以设置 `NO_COLOR=1` 禁用颜色。
 
-## Git 原生命令集成
+## `git help` 与旧版 Git 专用集成
 
-Git 支持自定义 man viewer，因此无需创建一个会遮蔽系统 `git` 的 wrapper。安装集成后仍然输入原命令：
+推荐的全局 `man` 集成也覆盖 Git 手册，安装后直接运行即可：
+
+```bash
+git help clone
+```
+
+旧版 bhelp 只集成 Git 的方式仍然保留，以便不想修改 shell man pager 的用户使用。Git 支持自定义 man viewer，因此这个兼容入口同样不需要创建一个会遮蔽系统 `git` 的 wrapper：
 
 ```bash
 bhelp integrate git install
@@ -105,6 +190,8 @@ git config --global help.format man
 ```bash
 bhelp integrate git remove
 ```
+
+不需要同时安装两套集成。执行 `bhelp integrate man install` 时，如果检测到仍与 bhelp 保存状态完全一致的旧版 Git 专用配置，会先恢复安装前的 Git 配置，再统一交给 `MANPAGER`；如果配置已被用户修改，则不会擅自覆盖。
 
 ## 语言与 provider
 
@@ -233,18 +320,21 @@ bhelp cache clear
 - `man` 页面不存在、配置无效或无法取得任何文本时返回非零。
 - 默认降级输出原文不把翻译故障变成硬失败；`--strict` 可用于脚本，让翻译失败返回 3。
 - CLI 用法或配置错误返回 2。
-- Ctrl+C 会终止等待中的子进程或网络请求并返回 130。输出管道被 `head` 等程序提前关闭时会按 SIGPIPE 正常结束，不打印 Python traceback。
+- `run`/`man`/`pipe` 等显式入口收到 Ctrl+C 时返回 130；交互式 `MANPAGER` 把 Ctrl+C 视为一次干净退出，避免 man-db 额外报告“pager 失败”。输出管道被 `head` 等程序提前关闭时会按 SIGPIPE 正常结束，不打印 Python traceback。
 
 ## 卸载
 
-先移除 Git viewer 集成。如果使用首选安装脚本安装，删除 `~/.local/bin` 中的单文件程序；工作区构建产物也可以一并删除：
+先移除 man pager 与 Git viewer 集成。如果使用首选安装脚本安装，删除 `~/.local/bin` 中的单文件程序；工作区构建产物也可以一并删除：
 
 ```bash
+bhelp integrate man remove
 bhelp integrate git remove
 bhelp cache clear  # 可选
 rm -f ~/.local/bin/bhelp
 rm -f dist/bhelp  # 可选；请在 bhelp 仓库根目录执行
 ```
+
+如果安装时设置过 `BHELP_INSTALL_DIR`，请删除该目录中的 `bhelp`，而不是上面默认路径中的文件。
 
 只有通过 venv/pip 安装时才使用：
 

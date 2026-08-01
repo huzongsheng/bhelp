@@ -1,11 +1,23 @@
-.PHONY: test build install
+BHELP_PYTHON ?= python3
+BHELP_ZIPAPP := dist/bhelp
+
+.PHONY: test build smoke check install clean
 
 test:
-	PYTHONPATH=src python3 -m unittest discover -s tests -v
+	PYTHONPATH=src $(BHELP_PYTHON) -m unittest discover -s tests -v
 
 build:
-	python3 -m zipapp src -m "bhelp.cli:entrypoint" -p "/usr/bin/env python3" -o dist/bhelp
-	chmod 0755 dist/bhelp
+	$(BHELP_PYTHON) scripts/build_zipapp.py --output $(BHELP_ZIPAPP)
+
+smoke: build
+	$(BHELP_PYTHON) $(BHELP_ZIPAPP) --help >/dev/null
+
+check: clean
+	$(MAKE) test
+	$(MAKE) smoke
 
 install:
 	sh scripts/install.sh
+
+clean:
+	rm -f $(BHELP_ZIPAPP)

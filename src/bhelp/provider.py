@@ -123,7 +123,7 @@ class ChatCompletionsProvider:
         headers = {
             "Accept": "application/json",
             "Authorization": f"Bearer {self.settings.api_key}",
-            "User-Agent": "bhelp/0.1.0",
+            "User-Agent": "bhelp/0.2.0",
         }
         if encoded is not None:
             headers["Content-Type"] = "application/json"

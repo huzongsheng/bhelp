@@ -11,6 +11,13 @@ class NormalizeTests(unittest.TestCase):
     def test_carriage_return_cannot_overwrite_output(self):
         self.assertEqual(sanitize_text("first\rsecond"), "first\nsecond")
 
+    def test_c1_terminal_controls_are_removed(self):
+        normalized = sanitize_text("safe\u009b31mred\u009d52;c;secret\u0007tail")
+        self.assertNotIn("\u009b", normalized)
+        self.assertNotIn("\u009d", normalized)
+        self.assertNotIn("\u0007", normalized)
+        self.assertEqual(normalized, "saferedtail")
+
     def test_binary_input_is_rejected(self):
         with self.assertRaises(ValueError):
             decode_text(b"text\x00binary")
@@ -21,4 +28,3 @@ class NormalizeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
