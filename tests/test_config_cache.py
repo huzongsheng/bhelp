@@ -95,6 +95,33 @@ class CacheTests(unittest.TestCase):
             with self.assertRaises(CacheError):
                 cache.put("c" * 64, {"translation": "x"})
 
+    def test_non_utf8_cache_is_ignored(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = TranslationCache(Path(directory))
+            key = "d" * 64
+            (cache.root / f"{key}.json").write_bytes(b"\xff\xfe")
+            self.assertIsNone(cache.get(key))
+
+    def test_cached_text_is_sanitized_before_reuse(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = TranslationCache(Path(directory))
+            key = "e" * 64
+            cache.put(key, {"translation": "\x1b[31mhello\x1b[0m", "source_language": "\x1b[0mEnglish"})
+            self.assertEqual(cache.get(key), {"translation": "hello", "source_language": "English"})
+
+    def test_empty_cached_translation_and_invalid_source_are_ignored(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = TranslationCache(Path(directory))
+            key = "f" * 64
+            for data in (
+                {"translation": ""}, {"translation": " \t "},
+                {"translation": "\x1b[0m"},
+                {"translation": "hello", "source_language": []},
+            ):
+                with self.subTest(data=data):
+                    cache.put(key, data)
+                    self.assertIsNone(cache.get(key))
+
 
 if __name__ == "__main__":
     unittest.main()

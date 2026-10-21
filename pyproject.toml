@@ -20,9 +20,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/huzongshen/bhelp"
-Repository = "https://github.com/huzongshen/bhelp.git"
-Issues = "https://github.com/huzongshen/bhelp/issues"
+Homepage = "https://github.com/huzongsheng/bhelp"
+Repository = "https://github.com/huzongsheng/bhelp.git"
+Issues = "https://github.com/huzongsheng/bhelp/issues"
 
 [project.scripts]
 bhelp = "bhelp.cli:entrypoint"
