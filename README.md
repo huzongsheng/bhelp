@@ -29,7 +29,7 @@ python3 --version
 首选使用仓库中的安装脚本：
 
 ```bash
-git clone https://github.com/huzongshen/bhelp.git bhelp
+git clone https://github.com/huzongsheng/bhelp.git bhelp
 cd bhelp
 sh scripts/install.sh
 ```
@@ -77,6 +77,8 @@ make check      # clean + test + smoke
 make install    # 构建并安装到用户目录
 make clean      # 删除 dist/bhelp
 ```
+
+损坏或为空的翻译缓存会被忽略并重新翻译，复用缓存前也会清理终端控制序列。模型返回缺失、无效或空白译文时，会按现有策略拆分批次或重试；仍然失败的块保留原文，避免中断整页阅读。
 
 ## 直接使用 `man`：透明集成与懒加载
 

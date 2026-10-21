@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import random
 import re
@@ -150,7 +151,7 @@ class ChatCompletionsProvider:
                         delay = min(float(retry_after), 10.0) if retry_after else 0.0
                     except ValueError:
                         delay = 0.0
-                    if not delay:
+                    if not math.isfinite(delay) or delay <= 0:
                         delay = min(0.5 * (2**attempt) + random.random() * 0.2, 5.0)
                     time.sleep(delay)
                     continue
@@ -238,12 +239,20 @@ class ChatCompletionsProvider:
                 raise ProviderError("translation JSON contains a non-object item")
             identifier = item.get("id")
             text = item.get("text")
-            if identifier not in expected_ids or identifier in mapped or not isinstance(text, str):
+            if (
+                not isinstance(identifier, str)
+                or identifier not in expected_ids
+                or identifier in mapped
+                or not isinstance(text, str)
+            ):
                 raise ProviderError("translation JSON contains an unknown, duplicate, or invalid block")
             sanitized = sanitize_text(text)
-            if not sanitized:
-                raise ProviderError(f"translation for {identifier} is empty")
+            if not sanitized.strip():
+                raise ProviderError(f"translation JSON has an empty translation for {identifier}")
             mapped[identifier] = sanitized
         if set(mapped) != expected_ids:
             raise ProviderError("translation JSON omitted one or more blocks")
-        return sanitize_text(detected), mapped
+        detected = sanitize_text(detected).strip()
+        if not detected:
+            raise ProviderError("translation JSON has an empty source language")
+        return detected, mapped

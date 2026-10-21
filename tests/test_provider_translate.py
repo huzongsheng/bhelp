@@ -1,7 +1,10 @@
 import json
+import io
 import threading
 import tempfile
 import unittest
+import urllib.error
+from unittest.mock import Mock, patch
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -117,6 +120,72 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(second.api_batches, 0)
         self.assertEqual(second.cache_hits, 1)
         self.assertEqual(_Handler.requests, 1)
+
+
+class MalformedResponseTests(unittest.TestCase):
+    def setUp(self):
+        self.provider = ChatCompletionsProvider(ProviderSettings(
+            name="deepseek", api_key="unused", base_url="http://127.0.0.1",
+            model="test-model", timeout_seconds=1, retries=1,
+        ))
+
+    def completion(self, identifier="b0000", text="translated", source="English"):
+        return {"choices": [{"message": {"content": json.dumps({
+            "source_language": source,
+            "translations": [{"id": identifier, "text": text}],
+        })}}]}
+
+    def test_non_string_ids_raise_provider_error(self):
+        for identifier in ([], {}, None, 1):
+            with self.subTest(identifier=identifier), patch.object(
+                self.provider, "_request_json", return_value=self.completion(identifier=identifier)
+            ):
+                with self.assertRaisesRegex(ProviderError, "translation JSON"):
+                    self.provider.translate_blocks([("b0000", "hello")], "auto", "zh-CN")
+
+    def test_empty_or_control_only_output_is_recoverable(self):
+        for text in ("", " \t ", "\x1b[31m\x1b[0m"):
+            with self.subTest(text=text), patch.object(
+                self.provider, "_request_json", return_value=self.completion(text=text)
+            ):
+                with self.assertRaisesRegex(ProviderError, "^translation JSON"):
+                    self.provider.translate_blocks([("b0000", "hello")], "auto", "zh-CN")
+
+    def test_control_only_source_language_is_rejected(self):
+        with patch.object(self.provider, "_request_json", return_value=self.completion(source="\x1b[0m")):
+            with self.assertRaisesRegex(ProviderError, "translation JSON"):
+                self.provider.translate_blocks([("b0000", "hello")], "auto", "zh-CN")
+
+    def test_empty_translation_retries_and_keeps_original_on_failure(self):
+        with patch.object(self.provider, "_request_json", return_value=self.completion(text="")):
+            result = translate_text(
+                "hello", source_language="auto", target_language="zh-CN",
+                provider=self.provider, batch_chars=1000, cache_enabled=False,
+                refresh_cache=False, no_network=False,
+            )
+        self.assertEqual(result.api_batches, 2)
+        self.assertEqual(result.pairs[0].original, "hello")
+        self.assertIsNone(result.pairs[0].translation)
+        self.assertEqual(len(result.errors), 1)
+
+    def test_invalid_retry_after_uses_bounded_backoff(self):
+        for retry_after in ("-1", "NaN", "nonsense", "0"):
+            with self.subTest(retry_after=retry_after):
+                error = urllib.error.HTTPError(
+                    "http://127.0.0.1", 429, "rate limited",
+                    {"Retry-After": retry_after}, io.BytesIO(b"{}"),
+                )
+                response = Mock()
+                response.__enter__ = Mock(return_value=response)
+                response.__exit__ = Mock(return_value=False)
+                response.read.return_value = b'{"data": []}'
+                with patch.object(self.provider._opener, "open", side_effect=[error, response]), patch(
+                    "bhelp.provider.time.sleep"
+                ) as sleep:
+                    self.assertEqual(self.provider.list_models(), [])
+                    delay = sleep.call_args.args[0]
+                    self.assertGreaterEqual(delay, 0.5)
+                    self.assertLessEqual(delay, 0.7)
 
 
 class _SplitRecoveryProvider:

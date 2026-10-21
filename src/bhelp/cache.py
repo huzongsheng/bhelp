@@ -8,6 +8,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from .normalize import sanitize_text
+
 
 class CacheError(RuntimeError):
     pass
@@ -73,10 +75,18 @@ class TranslationCache:
             if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
                 return None
             data = json.loads(path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, OSError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return None
         if not isinstance(data, dict) or not isinstance(data.get("translation"), str):
             return None
+        data["translation"] = sanitize_text(data["translation"])
+        if not data["translation"].strip():
+            return None
+        source = data.get("source_language")
+        if source is not None:
+            if not isinstance(source, str):
+                return None
+            data["source_language"] = sanitize_text(source).strip()
         return data
 
     def put(self, key: str, data: dict[str, Any]) -> None:
